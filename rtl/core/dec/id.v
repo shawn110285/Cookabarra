@@ -10,9 +10,9 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
-// 
+//
 //     http://www.apache.org/licenses/LICENSE-2.0
-// 
+//
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -31,6 +31,9 @@ module id(
     input wire[`InstBus]          inst_i,
     input wire                    branch_slot_end_i,
 
+    input wire[`RegBus]           next_pc_i,
+    input wire                    next_taken_i,
+
     //pass the gpr read signals to the gpr module, read the gpr
     output reg                    rs1_re_o,      // read rs1 or not
     output reg                    rs2_re_o,      // read rs2 or not
@@ -41,7 +44,7 @@ module id(
     input wire[`RegBus]           rs2_rdata_i,
 
     /* ---------signals from exu -----------------*/
-    input wire                    branch_i,
+    input wire                    branch_redirect_i,
 
     // some neccessary signals forwarded from exe unit, to detect data dependance.
     // if the exe unis is executing load instruction, and the rd is one of the rs,
@@ -64,8 +67,10 @@ module id(
     output wire                   stall_req_o,
 
     /* ------- signals to the execution unit --------*/
-    output reg[`RegBus]           inst_addr_o,
+    output reg[`RegBus]           pc_o,
     output reg[`RegBus]           inst_o,
+    output reg[`RegBus]           next_pc_o,
+    output reg                    next_taken_o,
     output reg                    branch_slot_end_o,
 
     output reg[`RegBus]           imm_o,
@@ -115,8 +120,12 @@ module id(
                               ||(ex_uopcode_i == `UOP_CODE_LH) || (ex_uopcode_i == `UOP_CODE_LHU)
                               ||(ex_uopcode_i == `UOP_CODE_LW) ) ? 1'b1 : 1'b0;
 
-    assign inst_addr_o = pc_i;
+    assign pc_o = pc_i;
     assign imm_o = imm;
+
+    // pass down the branch prediction info
+    assign next_pc_o = next_pc_i;
+    assign next_taken_o = next_taken_i;
     assign branch_slot_end_o = branch_slot_end_i;
 
     assign csr_we_o = csr_we;
@@ -157,7 +166,7 @@ module id(
             excepttype_illegal_inst = `False_v;
 
             instvalid = `InstValid;
-        end else if (branch_i) begin  // branch detected in the exe unit, replaced with a NOP
+        end else if (branch_redirect_i) begin  // branch detected in the exe unit, replaced with a NOP
             // set the default
             inst_o = `NOP_INST;
             rs1_re_o = 1'b0;

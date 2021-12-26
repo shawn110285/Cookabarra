@@ -11,9 +11,9 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
-// 
+//
 //     http://www.apache.org/licenses/LICENSE-2.0
-// 
+//
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -28,7 +28,7 @@ module ctrl(
     input wire                   n_rst_i,
 
     input wire[`RegBus]          exception_i,
-    input wire[`RegBus]          inst_addr_i,
+    input wire[`RegBus]          pc_i,
     input wire[`RegBus]          inst_i,
 
     /* ----- stall request from other modules --------*/
@@ -165,7 +165,7 @@ module ctrl(
             curr_state <= next_state;
     end
 
-    assign epc_o = inst_addr_i;
+    assign epc_o = pc_i;
 
     reg [1:0]          mtvec_mode; // machine trap mode
     reg [29:0]         mtvec_base; // machine trap base address
@@ -262,7 +262,7 @@ module ctrl(
                 trap_casue_o <= 4'b0000; // Instruction address misaligned, cause = 0
                 ie_type_o <= 1'b0;
                 set_mtval_o <= 1'b1;
-                mtval_o <= inst_addr_i;
+                mtval_o <= pc_i;
 
             end else if(illegal_inst) begin
                 trap_casue_o <= 4'b0010; // Illegal instruction, cause = 2
@@ -274,19 +274,19 @@ module ctrl(
                 trap_casue_o <= 4'b0011; // Breakpoint, cause =3
                 ie_type_o <= 1'b0;
                 set_mtval_o <= 1'b1;
-                mtval_o <= inst_addr_i;
+                mtval_o <= pc_i;
 
             end else if(misaligned_store) begin
                 trap_casue_o <= 4'b0110; // Store address misaligned  //cause 6
                 ie_type_o <= 1'b0;
                 set_mtval_o <= 1'b1;
-                mtval_o <= inst_addr_i;
+                mtval_o <= pc_i;
 
             end else if(misaligned_load) begin
                 trap_casue_o <= 4'b0100; // Load address misaligned  cause =4
                 ie_type_o <= 1'b0;
                 set_mtval_o <= 1'b1;
-                mtval_o <= inst_addr_i;
+                mtval_o <= pc_i;
 
             end else if(ecall) begin
                 trap_casue_o <= 4'b1011; // ecall from M-mode, cause = 11

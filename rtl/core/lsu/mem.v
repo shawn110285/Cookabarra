@@ -11,9 +11,9 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
-// 
+//
 //     http://www.apache.org/licenses/LICENSE-2.0
-// 
+//
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -29,7 +29,7 @@ module mem(
 
     /*-- signals from exu-----*/
     input wire[`RegBus]           exception_i,       // exception type
-    input wire[`RegBus]           inst_addr_i,       // the pc when exception happened
+    input wire[`RegBus]           pc_i,       // the pc when exception happened
     input wire[`RegBus]           inst_i,            // the instruction caused the exception
 
     input wire                    rd_we_i,
@@ -69,7 +69,7 @@ module mem(
     /*------- signals to control ----------*/
     output wire                   stall_req_o,
     output reg[`RegBus]           exception_o,
-    output reg[`RegBus]           inst_addr_o,
+    output reg[`RegBus]           pc_o,
     output reg[`RegBus]           inst_o
 
 );
@@ -105,7 +105,7 @@ module mem(
     assign exception_o = {25'b0, load_addr_align_exception, store_addr_align_exception, exception_i[4:0]};
 
     // to the next stage
-    assign inst_addr_o = inst_addr_i;
+    assign pc_o = pc_i;
     assign inst_o = inst_i;
 
     assign csr_we_o = csr_we_i;
@@ -149,7 +149,7 @@ module mem(
             csr_wdata_o = `ZeroWord;
 
             exception_o = `ZeroWord;
-            inst_addr_o = `ZeroWord;
+            pc_o = `ZeroWord;
             inst_o =  `NOP_INST;
         end else begin
             mem_sel_o = 4'b1111;

@@ -9,9 +9,9 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
-// 
+//
 //     http://www.apache.org/licenses/LICENSE-2.0
-// 
+//
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -32,17 +32,22 @@ module if_id(
 
     /* ------- signals from the ifu  -------------*/
     input wire[`InstAddrBus]      pc_i,
+    input wire[`InstAddrBus]      next_pc_i,
+    input wire                    next_taken_i,
 	input wire                    branch_slot_end_i,
 
     /* ------- signals from the inst_rom  --------*/
     input wire[`InstBus]          inst_i, //the instruction
 
     /* ---------signals from exu -----------------*/
-    input wire                    branch_i,
+    input wire                    branch_redirect_i,
 
 	/* ------- signals to the decode -------------*/
     output reg[`InstAddrBus]      pc_o,
     output reg[`InstBus]          inst_o,
+    output reg[`InstAddrBus]      next_pc_o,
+    output reg                    next_taken_o,
+
 	output reg                    branch_slot_end_o
 );
 
@@ -51,7 +56,7 @@ module if_id(
             pc_o <= `ZeroWord;
             inst_o <= `NOP_INST;
             branch_slot_end_o <= 1'b0;
-        end else if (branch_i == 1'b1) begin
+        end else if (branch_redirect_i == 1'b1) begin
             pc_o <= pc_i;
             inst_o <= `NOP_INST;
             branch_slot_end_o <= 1'b0;
@@ -68,6 +73,8 @@ module if_id(
         end else if(stall_i[1] == `NoStop) begin
             pc_o <= pc_i;
             inst_o <= inst_i;
+            next_pc_o <= next_pc_i;
+            next_taken_o <= next_taken_i;
             branch_slot_end_o <= branch_slot_end_i;
         end
     end

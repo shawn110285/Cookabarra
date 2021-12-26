@@ -9,9 +9,9 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
-// 
+//
 //     http://www.apache.org/licenses/LICENSE-2.0
-// 
+//
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -55,9 +55,10 @@
 `define ZeroWord                32'h00000000
 `define NOP_INST                32'h00000013           //ADDI x0, x0, 0
 
-/*----------------------------------- inst rom ---------------------------------*/
 `define InstAddrBus             31:0
 `define InstBus                 31:0
+
+/*----------------------------------- inst rom ---------------------------------*/
 `define InstMemNum              1048576
 `define InstMemNumLog2          20    //20 bits addr
 

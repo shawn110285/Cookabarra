@@ -9,9 +9,9 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
-// 
+//
 //     http://www.apache.org/licenses/LICENSE-2.0
-// 
+//
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -66,15 +66,25 @@ module core_top(
 
     //------- signals from if  ----
 	wire[`InstAddrBus]   if_pc_o;
-    wire                 if_stall_req_o;
-	wire                 if_branch_slot_end_o;
-
     assign rom_addr_o =  if_pc_o;
 
+    wire                 if_stall_req_o;
+	wire[`InstAddrBus]   if_next_pc_o;
+    wire                 if_next_taken_o;
+	wire                 if_branch_slot_end_o;
+
+    //wire[`InstAddrBus]   if_next_pc_o;
+	//wire[1:0]            if_next_taken_o;
+
+    //------signals from branch prediction ---
+    wire[`InstAddrBus]   bp_next_pc_o;
+	wire                 bp_next_taken_o;
 
     //-------signals from if_id ----
 	wire[`InstAddrBus]   id_pc_i;
 	wire[`InstBus]       id_inst_i;
+	wire[`InstAddrBus]   id_next_pc_i;
+    wire                 id_next_taken_i;
     wire                 id_branch_slot_end_i;
 
     //-------signals from id -------
@@ -91,6 +101,8 @@ module core_top(
     //id --> id_ex
     wire[`RegBus]        id_inst_o;
 	wire[`RegBus]        id_imm_o;
+	wire[`InstAddrBus]   id_next_pc_o;
+    wire                 id_next_taken_o;
     wire                 id_branch_slot_end_o;
 
 	wire                 id_csr_we_o;
@@ -104,13 +116,15 @@ module core_top(
 	wire[`AluSelBus]     id_alusel_o;
 	wire[`AluOpBus]      id_uopcode_o;
 
-    wire[`RegBus]        id_inst_addr_o;
+    wire[`RegBus]        id_pc_o;
 	wire[`RegBus]        id_excepttype_o;
 
     //-------signals from id_ex -------
 	// id_ex --> ex
-    wire[`RegBus]        ex_inst_addr_i;
+    wire[`RegBus]        ex_pc_i;
     wire[`RegBus]        ex_inst_i;
+	wire[`InstAddrBus]   ex_next_pc_i;
+    wire                 ex_next_taken_i;
     wire                 ex_branch_slot_end_i;
 
 	wire[`AluSelBus]     ex_alusel_i;
@@ -137,18 +151,16 @@ module core_top(
 
     // ex --> ctrl
     wire                 ex_stall_req_o;
-    wire                 ex_branch_o;
-	wire[`RegBus]        ex_branch_addr_o;
-
 
     // ex --> csr
     wire[`RegBus]        ex_csr_raddr_o;
 
 	// ex --> ex_mem
-    wire[`RegBus]        ex_inst_addr_o;
+    wire[`RegBus]        ex_pc_o;   //to branch prediction as well
 	wire[`RegBus]        ex_inst_o;
-    wire                 ex_branch_slot_end_o;
+
     wire                 ex_branch_tag_o;
+    wire                 ex_branch_slot_end_o;
 
 	wire                 ex_csr_we_o;
 	wire[`RegBus]        ex_csr_waddr_o;
@@ -163,6 +175,17 @@ module core_top(
 	wire[`RegBus]        ex_mem_wdata_o;
 
     wire[`RegBus]        ex_excepttype_o;
+
+    // ex --> branch prediction
+	wire                 ex_branch_request_o;
+	wire                 ex_branch_taken_o;
+	wire                 ex_branch_call_o;
+	wire                 ex_branch_ret_o;
+	wire                 ex_branch_jmp_o;
+	wire[`RegBus]        ex_branch_target_o;
+
+    wire                 ex_branch_redirect_o;   //miss predicted, redirect the pc
+	wire[`RegBus]        ex_branch_redirect_pc_o;
 
 
     //-------signals from ex_mem -------
@@ -179,7 +202,7 @@ module core_top(
 	wire[`RegBus]        mem_csr_wdata_i;
 
     wire[`RegBus]        mem_excepttype_i;
-	wire[`RegBus]        mem_inst_addr_i;
+	wire[`RegBus]        mem_pc_i;
 	wire[`RegBus]        mem_inst_i;
 
 
@@ -194,7 +217,7 @@ module core_top(
 
     wire                 mem_stall_req_o;
 	wire[`RegBus]        mem_excepttype_o;
-	wire[`RegBus]        mem_inst_addr_o;
+	wire[`RegBus]        mem_pc_o;
 	wire[`RegBus]        mem_inst_o;
 
 
@@ -250,18 +273,49 @@ module core_top(
 		.flush_i(ctrl_flush_o),
 		.new_pc_i(ctrl_new_pc_o),
 
-		// from exe unit
-		.branch_i(ex_branch_o),
-		.branch_addr_i(ex_branch_addr_o),
+        // from bp
+		.next_pc_i (bp_next_pc_o),
+		.next_taken_i(bp_next_taken_o),
 
-        // to rom
+		// from exe unit
+		.branch_redirect_i(ex_branch_redirect_o),
+		.branch_redirect_pc_i(ex_branch_redirect_pc_o),
+
+        // to rom and to bp
 		.pc_o(if_pc_o),
 		.ce_o(rom_ce_o),	   //connect to outside rom
-        .branch_slot_end_o(if_branch_slot_end_o),
+
 		// to ctrl
-		.stall_req_o(if_stall_req_o)
+		.stall_req_o(if_stall_req_o),
+
+		// to exe unit
+        .next_pc_o(if_next_pc_o),
+		.next_taken_o(if_next_taken_o),
+		.branch_slot_end_o(if_branch_slot_end_o)
 	);
 
+
+    branch_prediction bp0(
+		.clk_i(clk_i),
+		.n_rst_i(n_rst_i),
+
+		.branch_source_i(ex_pc_o),   // the pc caused the branch
+		.branch_request_i(ex_branch_request_o),  // is this instruction a branch/jump ?
+		.branch_is_taken_i(ex_branch_taken_o),
+		.branch_is_call_i(ex_branch_call_o),
+		.branch_is_ret_i(ex_branch_ret_o),
+		.branch_is_jmp_i(ex_branch_jmp_o),
+		.branch_target_i(ex_branch_target_o),   // the acually branch target pc
+		.branch_mispredict_i(ex_branch_redirect_o),
+
+		//input signals from fetch unit
+		.pc_i (if_pc_o),
+		.stall_i(ctrl_stall_o[0]),
+
+		// output signals to fetch unit
+		.next_pc_o (bp_next_pc_o),    // next predicted pc
+		.next_taken_o (bp_next_taken_o)  // branch take or not, forward to execute via fetch module
+	);
 
 
     //if_id instantiate
@@ -275,16 +329,20 @@ module core_top(
 
 		//from if
 		.pc_i(if_pc_o),
+        .next_pc_i(if_next_pc_o),
+        .next_taken_i(if_next_taken_o),
         .branch_slot_end_i(if_branch_slot_end_o),
 
 		//from rom
 		.inst_i(rom_data_i),
 
-		.branch_i(ex_branch_o),
+		.branch_redirect_i(ex_branch_redirect_o),
 
 		// to id
 		.pc_o(id_pc_i),
 		.inst_o(id_inst_i),
+        .next_pc_o(id_next_pc_i),
+        .next_taken_o(id_next_taken_i),
 		.branch_slot_end_o(id_branch_slot_end_i)
 	);
 
@@ -296,6 +354,8 @@ module core_top(
 		//signal from the if_id
 		.pc_i(id_pc_i),
 		.inst_i(id_inst_i),
+        .next_pc_i(id_next_pc_i),
+        .next_taken_i(id_next_taken_i),
         .branch_slot_end_i(id_branch_slot_end_i),
 
 		//signal to read regfile
@@ -309,7 +369,7 @@ module core_top(
 		.rs2_rdata_i(reg_rs2_rdata_o),
 
 	    //bypass from the ex
-		.branch_i(ex_branch_o),
+		.branch_redirect_i(ex_branch_redirect_o),
   	    .ex_uopcode_i(ex_uopcode_o),
 		.ex_rd_we_i(ex_rd_we_o),
 		.ex_rd_waddr_i(ex_rd_addr_o),
@@ -324,8 +384,10 @@ module core_top(
 		.stall_req_o(id_stall_req_o),
 
 		//signals to id_ex
-        .inst_addr_o(id_inst_addr_o),
+        .pc_o(id_pc_o),
 		.inst_o(id_inst_o),
+        .next_pc_o(id_next_pc_o),
+        .next_taken_o(id_next_taken_o),
 		.branch_slot_end_o(id_branch_slot_end_o),
 
 		.imm_o(id_imm_o),
@@ -356,8 +418,10 @@ module core_top(
 		.flush_i(ctrl_flush_o),
 
 		//signal from id
-		.inst_addr_i(id_inst_addr_o),
+		.pc_i(id_pc_o),
         .inst_i(id_inst_o),
+        .next_pc_i(id_next_pc_o),
+        .next_taken_i(id_next_taken_o),
 		.branch_slot_end_i(id_branch_slot_end_o),
 
 		.alusel_i(id_alusel_o),
@@ -376,8 +440,10 @@ module core_top(
 
 
 		//signal to ex
-		.inst_addr_o(ex_inst_addr_i),
+		.pc_o(ex_pc_i),
 		.inst_o(ex_inst_i),
+        .next_pc_o(ex_next_pc_i),
+        .next_taken_o(ex_next_taken_i),
         .branch_slot_end_o(ex_branch_slot_end_i),
 
 		.alusel_o(ex_alusel_i),
@@ -401,8 +467,10 @@ module core_top(
 		.n_rst_i(n_rst_i),
 
 		//from the id_ex
-		.inst_addr_i(ex_inst_addr_i),
+		.pc_i(ex_pc_i),
 		.inst_i(ex_inst_i),
+        .next_pc_i(ex_next_pc_i),
+		.next_taken_i(ex_next_taken_i),
         .branch_slot_end_i(ex_branch_slot_end_i),
 
 		.alusel_i(ex_alusel_i),
@@ -429,13 +497,10 @@ module core_top(
 
         // to control unit
 		.stall_req_o(ex_stall_req_o),
-		.branch_o(ex_branch_o),
-		.branch_addr_o(ex_branch_addr_o),
 
         // read the csr
 		.csr_raddr_o(ex_csr_raddr_o),
 		.csr_rdata_i(csr_rdata_o),
-
 
 		//forward the csr updating from mem stage
      	.mem_csr_we_i(mem_csr_we_o),
@@ -449,9 +514,18 @@ module core_top(
 
 
 		//pass down the signals to next pipeline stage
-		.inst_addr_o(ex_inst_addr_o),
+		.pc_o(ex_pc_o),
 		.inst_o(ex_inst_o),
 
+		// branch
+        .branch_request_o (ex_branch_request_o),  // is this instruction a branch/jump ?
+        .branch_is_taken_o (ex_branch_taken_o),
+        .branch_is_call_o (ex_branch_call_o),
+        .branch_is_ret_o (ex_branch_ret_o),
+        .branch_is_jmp_o (ex_branch_jmp_o),
+        .branch_target_o (ex_branch_target_o),   // the acually branch target pc
+		.branch_redirect_o(ex_branch_redirect_o),
+		.branch_redirect_pc_o(ex_branch_redirect_pc_o),
 		.branch_tag_o(ex_branch_tag_o),
         .branch_slot_end_o(ex_branch_slot_end_o),
 
@@ -494,7 +568,7 @@ module core_top(
 	    .flush_i(ctrl_flush_o),
 
 		//from the exu
-		.inst_addr_i(ex_inst_addr_o),
+		.pc_i(ex_pc_o),
 		.inst_i(ex_inst_o),
 
         .branch_tag_i(ex_branch_tag_o),
@@ -531,7 +605,7 @@ module core_top(
 		.csr_wdata_o(mem_csr_wdata_i),
 
 		.exception_o(mem_excepttype_i),
-		.inst_addr_o(mem_inst_addr_i),
+		.pc_o(mem_pc_i),
 		.inst_o(mem_inst_i)
 	);
 
@@ -540,7 +614,7 @@ module core_top(
 
 		// signals from exu
         .exception_i(mem_excepttype_i),
-		.inst_addr_i(mem_inst_addr_i),
+		.pc_i(mem_pc_i),
 		.inst_i(mem_inst_i),
 
 		// GPR
@@ -585,7 +659,7 @@ module core_top(
         // stall req and execeptions
 		.stall_req_o(mem_stall_req_o),
 		.exception_o(mem_excepttype_o),
-		.inst_addr_o(mem_inst_addr_o),
+		.pc_o(mem_pc_o),
 		.inst_o(mem_inst_o)
 
 	);
@@ -625,7 +699,7 @@ module core_top(
 		.n_rst_i(n_rst_i),
 	     //from mem
         .exception_i(mem_excepttype_o),
-		.inst_addr_i(mem_inst_addr_o),
+		.pc_i(mem_pc_o),
 		.inst_i(mem_inst_o),
          //from if, id, eu, mem
         .stallreq_from_if_i(if_stall_req_o),

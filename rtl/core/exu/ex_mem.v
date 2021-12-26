@@ -9,9 +9,9 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
-// 
+//
 //     http://www.apache.org/licenses/LICENSE-2.0
-// 
+//
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -31,7 +31,7 @@ module ex_mem(
     input wire                    flush_i,
 
     /* ------- signals from the exe unit --------*/
-    input wire[`RegBus]           inst_addr_i,
+    input wire[`RegBus]           pc_i,
     input reg[`RegBus]            inst_i,
 
     input wire                    branch_tag_i,       //this instruction is a branch instr
@@ -65,7 +65,7 @@ module ex_mem(
     output reg[`RegBus]           csr_wdata_o,
 
     output reg[`RegBus]           exception_o,
-    output reg[`RegBus]           inst_addr_o,
+    output reg[`RegBus]           pc_o,
     output reg[`RegBus]           inst_o
 
 );
@@ -89,7 +89,7 @@ module ex_mem(
             csr_wdata_o <= `ZeroWord;
 
             exception_o <= `ZeroWord;
-            inst_addr_o <= `ZeroWord;
+            pc_o <= `ZeroWord;
             inst_o <= `NOP_INST;
 
             branch_tag <= 1'b0;
@@ -109,7 +109,7 @@ module ex_mem(
             csr_wdata_o <= `ZeroWord;
 
             exception_o <= `ZeroWord;
-            inst_addr_o <= `ZeroWord;
+            pc_o <= `ZeroWord;
             inst_o <= `NOP_INST;
 
             branch_tag <= 1'b0;
@@ -129,7 +129,7 @@ module ex_mem(
             csr_wdata_o <= `ZeroWord;
 
             exception_o <= `ZeroWord;
-            inst_addr_o <= `ZeroWord;
+            pc_o <= `ZeroWord;
             inst_o <= `NOP_INST;
 
             branch_tag <= 1'b0;
@@ -154,7 +154,7 @@ module ex_mem(
                 // note: branch_tag_i and branch_slot_end_i can be true simultaneously
                 // for example: while(1) in c
                 branch_tag <= 1'b1;
-                branch_pc <= inst_addr_i;
+                branch_pc <= pc_i;
             end else begin
                 if(branch_tag && branch_slot_end_i) begin // branch ended
                     branch_tag <= 1'b0;
@@ -162,9 +162,9 @@ module ex_mem(
             end
 
             if(branch_tag) begin
-                inst_addr_o <= branch_pc;
+                pc_o <= branch_pc;
             end else begin
-                inst_addr_o <= inst_addr_i;
+                pc_o <= pc_i;
             end
 
             inst_o <= inst_i;

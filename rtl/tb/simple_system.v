@@ -128,7 +128,7 @@ module simple_system(
 		.data_o(device_rdata[`DEV_RAM]),
 
     	.inst_ce_i(rom_ce),
-		.inst_addr_i(inst_addr),
+		.pc_i(inst_addr),
 		.inst_o(inst)		
 	);
 

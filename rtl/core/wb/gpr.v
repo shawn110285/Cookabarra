@@ -11,9 +11,9 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
-// 
+//
 //     http://www.apache.org/licenses/LICENSE-2.0
-// 
+//
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -54,13 +54,13 @@ module regfile(
                 regs[rd_addr_i] <= rd_wdata_i;
             end
 
-            //used for ISA test
+            /*used for ISA test */
             /*
             if(regs[26] == 32'b1 && regs[27] == 32'b1) begin
                 $display("test passed!");
                 $finish();
-            end    
-            */        
+            end
+            */
         end
     end
 

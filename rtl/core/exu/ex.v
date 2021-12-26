@@ -9,9 +9,9 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
-// 
+//
 //     http://www.apache.org/licenses/LICENSE-2.0
-// 
+//
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -26,8 +26,11 @@ module ex(
     input wire                    n_rst_i,
 
     /* ------- signals from the decoder unit --------*/
-    input wire[`RegBus]           inst_addr_i,
+    input wire[`RegBus]           pc_i,
     input wire[`RegBus]           inst_i,
+
+    input wire[`RegBus]           next_pc_i,
+	input wire                    next_taken_i,
     input wire                    branch_slot_end_i,
 
     input wire[`AluSelBus]        alusel_i,
@@ -57,8 +60,6 @@ module ex(
 
     /* ------- signals to the ctrl unit --------*/
     output reg                    stall_req_o,     // need to stall the pipeline on the division operation, it needs 32 cycles
-    output reg                    branch_o,        // if this is a branch instruction and branch required
-    output reg[`RegBus]           branch_addr_o,
 
     /* ------- signals with csr unit --------*/
     output reg[`RegBus]           csr_raddr_o,
@@ -76,8 +77,19 @@ module ex(
 
 
     /* ------- passed to next pipeline --------*/
-    output reg[`RegBus]           inst_addr_o,
+    output reg[`RegBus]           pc_o,
     output reg[`RegBus]           inst_o,
+
+    //branch related
+    output reg                    branch_request_o,  // is this instruction a branch/jump ?
+    output reg                    branch_is_taken_o,
+    output reg                    branch_is_call_o,
+    output reg                    branch_is_ret_o,
+    output reg                    branch_is_jmp_o,
+    output reg[`RegBus]           branch_target_o,
+
+    output reg                    branch_redirect_o,  // if this is a branch instruction and branch miss predicted
+    output reg[`RegBus]           branch_redirect_pc_o,
 
     output reg                    branch_tag_o,
     output reg                    branch_slot_end_o,
@@ -99,9 +111,12 @@ module ex(
 );
     reg    stallreq_for_div;
 
-    assign inst_addr_o = inst_addr_i;
+    assign pc_o = pc_i;
     assign inst_o = inst_i;
     assign branch_slot_end_o = branch_slot_end_i;
+
+    // to identify call or ret
+    wire[4:0]  rs1 = inst_i[19:15];
 
     assign csr_we_o =  csr_we_i;
     assign csr_waddr_o = csr_addr_i;
@@ -114,10 +129,10 @@ module ex(
     assign exception_o = exception_i;
 
     wire[`RegBus] pc_plus_4;
-    assign pc_plus_4 = inst_addr_i + 4;    //for jar or jalr, the rd should be updated to pc + 4
+    assign pc_plus_4 = pc_i + 4;    //for jar or jalr, the rd should be updated to pc + 4
 
     wire[`RegBus] pc_add_imm;
-    assign pc_add_imm =  inst_addr_i + imm_i;
+    assign pc_add_imm =  pc_i + imm_i;
 
     wire[`RegBus] rs1_add_imm;
     assign rs1_add_imm =  rs1_data_i + imm_i;
@@ -293,79 +308,145 @@ module ex(
     always @ (*) begin
         if(n_rst_i == `RstEnable) begin
             jump_result = `ZeroWord;
-            branch_o = 1'b0;
-            branch_addr_o = `ZeroWord;
+
+            branch_request_o = 1'b0;
+            branch_is_taken_o = 1'b0;
+            branch_is_call_o = 1'b0;
+            branch_is_ret_o = 1'b0;
+            branch_is_jmp_o = 1'b0;
+            branch_target_o = `ZeroWord;
+
+            branch_redirect_o = 1'b0;
+            branch_redirect_pc_o = `ZeroWord;;
             branch_tag_o = 1'b0;
+
         end else begin
             jump_result = `ZeroWord;
-            branch_o = 1'b0;
-            branch_addr_o = `ZeroWord;
+
+            branch_request_o = 1'b0;
+            branch_is_taken_o = 1'b0;
+            branch_is_call_o = 1'b0;
+            branch_is_ret_o = 1'b0;
+            branch_is_jmp_o = 1'b0;
+            branch_target_o = `ZeroWord;
+
+            branch_redirect_o = 1'b0;
+            branch_redirect_pc_o = `ZeroWord;;
             branch_tag_o = 1'b0;
             case (uopcode_i)
                 `UOP_CODE_JAL: begin
                     // jal rd,offset  :  x[rd] = pc+4; pc += sext(offset)
-                    jump_result = pc_plus_4;
-                    branch_o = `Branch;
-					branch_addr_o = pc_add_imm;
-                    branch_tag_o = branch_o;  // indicate a branch started
+                    jump_result = pc_plus_4;  //save to rd
+                    branch_target_o = pc_add_imm;
+                    branch_is_taken_o = 1'b1;
+
+                    /* A JAL instruction should push the return address onto a return-address stack (RAS) only when rd=x1/x5.*/
+                    if( (rd_addr_i == 5'b00001) || (rd_addr_i == 5'b00101) ) begin
+                        branch_is_call_o = 1'b1;
+                    end else begin
+                        branch_is_jmp_o = 1'b1;
+                    end
                 end
 
                 `UOP_CODE_JALR: begin
                     // jalr rd,rs1,offset  :   t =pc+4; pc=(x[rs1]+sext(imm))&∼1; x[rd]=t
                     jump_result = pc_plus_4;
-                    branch_o = `Branch;
-					branch_addr_o =  rs1_data_i + imm_i;
-                    branch_tag_o = branch_o;
-                end
+                    branch_target_o = rs1_data_i + imm_i;
+                    branch_is_taken_o = 1'b1;
+
+                    /* JALR instructions should push/pop a RAS as shown in the Table
+                    ------------------------------------------------
+                       rd    |   rs1    | rs1=rd  |   RAS action
+                   (1) !link |   !link  | -       |   none
+                   (2) !link |   link   | -       |   pop
+                   (3) link  |   !link  | -       |   push
+                   (4) link  |   link   | 0       |   push and pop
+                   (5) link  |   link   | 1       |   push
+                    ------------------------------------------------ */
+                    if(rd_addr_i == 5'b00001 || rd_addr_i == 5'b00101) begin  //rd is linker reg
+                        if(rs1 == 5'b00001 || rs1 == 5'b00101) begin  //rs1 is linker reg as well
+                            if(rd_addr_i == rs1) begin     //(5)
+                                branch_is_call_o = 1'b1;
+                            end else begin
+                                branch_is_call_o = 1'b1;   //(4)
+                                branch_is_ret_o = 1'b1;
+                            end
+                        end else begin
+                            branch_is_call_o = 1'b1; //(3)
+                        end // if(rs1 == 5'b00001 || rs1 == 5'b00101) begin
+                    end else begin  //rd is not linker reg
+                        if(rs1 == 5'b00001 || rs1 == 5'b00101) begin  // rs1 is linker reg
+                            branch_is_ret_o = 1'b1; //(2)
+                        end else begin  //rs1 is not linker reg
+                            branch_is_jmp_o = 1'b1; // (1)
+                        end
+                    end //if(rd_addr_i == 5'b00001 || rd_addr_i == 5'b00101) begin
+               end
 
                 /* ---------------------B-Type instruction --------------*/
                 `UOP_CODE_BEQ: begin
                     // beq rs1,rs2,offset  :   if (rs1 == rs2) pc += sext(imm)
-                    branch_o = rs1_eq_rs2;
-                    branch_addr_o = {32{rs1_eq_rs2}} & pc_add_imm;
-                    branch_tag_o = branch_o;
+                    branch_target_o = pc_add_imm;
+                    branch_is_taken_o = rs1_eq_rs2;
                 end
 
                 `UOP_CODE_BNE: begin
                    // bne rs1,rs2,offset  :   if (rs1 != rs2) pc += sext(offset)
-                    branch_o = (~rs1_eq_rs2);
-                    branch_addr_o = {32{(~rs1_eq_rs2)}} & pc_add_imm;
-                    branch_tag_o = branch_o;
+                    branch_target_o = pc_add_imm;
+                    branch_is_taken_o = (~rs1_eq_rs2);
                 end
 
                 `UOP_CODE_BGE: begin
                     // bge rs1,rs2,offset  :   if (rs1 >=s rs2) pc += sext(offset)
-                    branch_o = (rs1_ge_rs2_signed);
-                    branch_addr_o = {32{(rs1_ge_rs2_signed)}} & pc_add_imm;
-                    branch_tag_o = branch_o;
+                    branch_target_o = pc_add_imm;
+                    branch_is_taken_o = (rs1_ge_rs2_signed);
                 end
 
                 `UOP_CODE_BGEU: begin
                     // bgeu rs1,rs2,offset  :   if (rs1 >=u rs2) pc += sext(offset)
-                    branch_o = (rs1_ge_rs2_unsigned);
-                    branch_addr_o = {32{(rs1_ge_rs2_unsigned)}} & pc_add_imm;
-                    branch_tag_o = branch_o;
+                    branch_target_o = pc_add_imm;
+                    branch_is_taken_o = (rs1_ge_rs2_unsigned);
                 end
 
                 `UOP_CODE_BLT: begin
                    // blt rs1,rs2,offset  :   if (rs1 <s rs2) pc += sext(offset)
-                    branch_o = (~rs1_ge_rs2_signed);
-                    branch_addr_o = {32{(~rs1_ge_rs2_signed)}} & pc_add_imm;
-                    branch_tag_o = branch_o;
+                    branch_target_o = pc_add_imm;
+                    branch_is_taken_o = (~rs1_ge_rs2_signed);
                 end
 
                 `UOP_CODE_BLTU: begin
                     // bltu rs1,rs2,offset  :   if (rs1 >u rs2) pc += sext(offset)
-                    branch_o = (~rs1_ge_rs2_unsigned);
-                    branch_addr_o = {32{(~rs1_ge_rs2_unsigned)}} & pc_add_imm;
-                    branch_tag_o = branch_o;
+                    branch_target_o = pc_add_imm;
+                    branch_is_taken_o =  (~rs1_ge_rs2_unsigned);
                 end
 
                 default: begin
-
                 end
             endcase // case (uopcode_i)
-        end  // end else begin
+
+            if( (uopcode_i == `UOP_CODE_JAL) || (uopcode_i == `UOP_CODE_JALR) || (uopcode_i == `UOP_CODE_BEQ) || (uopcode_i == `UOP_CODE_BNE) ||
+                (uopcode_i == `UOP_CODE_BGE) || (uopcode_i == `UOP_CODE_BGEU) || (uopcode_i == `UOP_CODE_BLT) || (uopcode_i == `UOP_CODE_BLTU) ) begin
+
+                branch_request_o = 1'b1;
+
+                if(branch_is_taken_o == 1'b1) begin   //taken
+                    if( (next_taken_i == 1'b0) || (next_pc_i != branch_target_o) ) begin     //miss predicted taken or target
+                        branch_redirect_o = `Branch;
+                        branch_redirect_pc_o = branch_target_o;
+                        branch_tag_o = branch_redirect_o;  // indicate a branch started
+                        $display("miss predicted, pc=%h, next_take=%d, branch_taken=%d, next_pc=%h, branch_target=%h is_call=%d, is_ret=%d, is_jmp=%d",
+                        pc_i, next_taken_i, branch_is_taken_o, next_pc_i, branch_target_o, branch_is_call_o, branch_is_ret_o, branch_is_jmp_o);
+                    end
+                end else begin  //if(branch_is_taken_o == 1'b1) begin
+                    if( next_taken_i == 1'b1 ) begin //miss predicted taken
+                        branch_redirect_o = `Branch;
+                        branch_redirect_pc_o = pc_i+4;
+                        branch_tag_o = branch_redirect_o;  // indicate a branch started
+                        $display("miss predicted, pc=%h, branch_taken=%d, next_take=%d, next_pc=%h", pc_i, branch_is_taken_o, next_taken_i, next_pc_i);
+                    end
+                end  // if(branch_is_taken_o == 1'b1) begin
+            end  //  if( (uopcode_i == `UOP_CODE_JAL) || (uopcode_i == `UOP_CODE_JALR) ||
+        end  // if(n_rst_i == `RstEnable) begin
     end //always
 
 
