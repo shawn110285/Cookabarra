@@ -47,7 +47,8 @@ The formula to calculate the coremark/Mhz:
 
 Note: Seen a lot of nop instruction were inserted into the pipeline when there is a branch or jump happened, the performance can be expected to improve significantly by introducing a branch prediction unit.
 
---------------------------- Added 27-12-2021-----------------------------------------------------
+-------------------------------------------------------------- Added 27-12-2021------------------------------------------------------------------------
+
 The coremarks was boosted by introducing the branch prediction to the implementation. with the following branch prediction parameters:
     parameter NUM_RAS_ENTRIES  = 8,
     parameter NUM_BTB_ENTRIES  = 64,
