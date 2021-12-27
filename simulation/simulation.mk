@@ -40,8 +40,10 @@ objects = $(TARGET_DIR)/simu_main.o $(TARGET_DIR)/verilated_vcd_c.o $(TARGET_DIR
 
 target  = $(TARGET_DIR)/libtb.a
 
+$(TARGET_DIR):
+	mkdir $@
 
-$(TARGET_DIR)/simu_main.o: simu_main.cc
+$(TARGET_DIR)/simu_main.o: simu_main.cc $(TARGET_DIR)
 	@echo 'Building file: $<'
 	@echo 'Invoking: $(CC) C Compiler'
 	$(CC) $(CFLAGS)  $< -o $@
